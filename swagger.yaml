@@ -1,0 +1,919 @@
+openapi: 3.0.0
+info:
+  title: Company Service API
+  description: |
+    API for managing companies, Stripe Connect onboarding, and payment transactions.
+    This service allows businesses to manage their profiles, connect their Stripe accounts
+    to accept payments, and view/manage payment transaction statuses.
+  version: 1.0.0
+servers:
+  - url: http://localhost:3000/api # Base URL for API endpoints (excluding webhooks)
+    description: Local Development Server
+  # - url: https://your-production-domain.com/api # Example for production
+  #   description: Production Server
+
+tags:
+  - name: Companies
+    description: Operations related to company profiles and Stripe Connect onboarding.
+  - name: Payments
+    description: Operations related to Stripe payment intents and transaction history.
+  - name: Webhooks
+    description: Endpoints for receiving Stripe webhook events.
+
+paths:
+  /companies:
+    get:
+      tags:
+        - Companies
+      summary: Retrieve a list of all companies
+      description: Fetches all registered companies from the database.
+      responses:
+        '200':
+          description: A list of companies.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Company'
+              examples:
+                SuccessResponse:
+                  value:
+                    - id: "e0a7b4f3-c2d1-4e8a-9f0b-1d3c5e7a9b0d"
+                      name: "Global Tech Solutions"
+                      email: "info@globaltech.com"
+                      address: "456 Enterprise Ave"
+                      phone: "999-888-7777"
+                      stripeAccountId: "acct_12345Example"
+                      createdAt: "2025-07-23T10:00:00.000Z"
+                      updatedAt: "2025-07-23T10:00:00.000Z"
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                InternalServerError:
+                  value:
+                    message: "Failed to retrieve companies."
+                    error: "Database error message."
+    post:
+      tags:
+        - Companies
+      summary: Create a new company
+      description: Registers a new company with basic details.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - email
+              properties:
+                name:
+                  type: string
+                  description: The name of the company.
+                  example: "Innovative Designs Ltd."
+                email:
+                  type: string
+                  format: email
+                  description: The primary contact email for the company.
+                  example: "contact@innovative.com"
+                address:
+                  type: string
+                  nullable: true
+                  description: The physical address of the company.
+                  example: "789 Creative Rd, Artsville"
+                phone:
+                  type: string
+                  nullable: true
+                  description: The phone number of the company.
+                  example: "111-222-3333"
+      responses:
+        '201':
+          description: Company created successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Company'
+              examples:
+                SuccessResponse:
+                  value:
+                    id: "f1b8c7d6-a5e4-3b2a-1c0d-9e8f7a6b5c4d"
+                    name: "Innovative Designs Ltd."
+                    email: "contact@innovative.com"
+                    address: "789 Creative Rd, Artsville"
+                    phone: "111-222-3333"
+                    stripeAccountId: null
+                    createdAt: "2025-07-23T11:00:00.000Z"
+                    updatedAt: "2025-07-23T11:00:00.000Z"
+        '400':
+          description: Invalid input. Missing required fields.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                MissingFields:
+                  value:
+                    message: "Name and email are required."
+        '409':
+          description: Conflict. Company with this name or email already exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                DuplicateCompany:
+                  value:
+                    message: "Company with this name or email already exists."
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                InternalServerError:
+                  value:
+                    message: "Failed to create company."
+                    error: "Database error message."
+
+  /companies/{id}:
+    get:
+      tags:
+        - Companies
+      summary: Retrieve a company by ID
+      description: Fetches a single company's details using its unique ID.
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+            format: uuid
+          required: true
+          description: Unique identifier of the company.
+          example: "e0a7b4f3-c2d1-4e8a-9f0b-1d3c5e7a9b0d"
+      responses:
+        '200':
+          description: Company details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Company'
+              examples:
+                SuccessResponse:
+                  value:
+                    id: "e0a7b4f3-c2d1-4e8a-9f0b-1d3c5e7a9b0d"
+                    name: "Global Tech Solutions"
+                    email: "info@globaltech.com"
+                    address: "456 Enterprise Ave"
+                    phone: "999-888-7777"
+                    stripeAccountId: "acct_12345Example"
+                    createdAt: "2025-07-23T10:00:00.000Z"
+                    updatedAt: "2025-07-23T10:00:00.000Z"
+        '404':
+          description: Company not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                NotFound:
+                  value:
+                    message: "Company not found"
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                InternalServerError:
+                  value:
+                    message: "Failed to retrieve company."
+                    error: "Database error message."
+    put:
+      tags:
+        - Companies
+      summary: Update an existing company
+      description: Updates details for a specific company identified by its ID. Can also be used to add `stripeAccountId` after onboarding.
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+            format: uuid
+          required: true
+          description: Unique identifier of the company.
+          example: "e0a7b4f3-c2d1-4e8a-9f0b-1d3c5e7a9b0d"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: The updated name of the company.
+                  example: "Global Tech Solutions LLC"
+                email:
+                  type: string
+                  format: email
+                  description: The updated primary contact email.
+                  example: "support@globaltech.com"
+                address:
+                  type: string
+                  nullable: true
+                  description: The updated physical address.
+                  example: "123 Tech Park, Innovation City"
+                phone:
+                  type: string
+                  nullable: true
+                  description: The updated phone number.
+                  example: "012-345-6789"
+                stripeAccountId:
+                  type: string
+                  nullable: true
+                  description: The Stripe Connect account ID (set after onboarding).
+                  example: "acct_newStripeID"
+      responses:
+        '200':
+          description: Company updated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Company'
+              examples:
+                SuccessResponse:
+                  value:
+                    id: "e0a7b4f3-c2d1-4e8a-9f0b-1d3c5e7a9b0d"
+                    name: "Global Tech Solutions LLC"
+                    email: "support@globaltech.com"
+                    address: "123 Tech Park, Innovation City"
+                    phone: "012-345-6789"
+                    stripeAccountId: "acct_12345Example"
+                    createdAt: "2025-07-23T10:00:00.000Z"
+                    updatedAt: "2025-07-23T12:00:00.000Z"
+        '400':
+          description: Invalid input (e.g., invalid email format).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                InvalidInput:
+                  value:
+                    message: "Validation error: Validation isEmail on email failed"
+        '404':
+          description: Company not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                NotFound:
+                  value:
+                    message: "Company not found"
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                InternalServerError:
+                  value:
+                    message: "Failed to update company."
+                    error: "Database error message."
+    delete:
+      tags:
+        - Companies
+      summary: Delete a company
+      description: Deletes a company permanently from the database.
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+            format: uuid
+          required: true
+          description: Unique identifier of the company to delete.
+          example: "e0a7b4f3-c2d1-4e8a-9f0b-1d3c5e7a9b0d"
+      responses:
+        '200':
+          description: Company deleted successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Company deleted successfully"
+        '404':
+          description: Company not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                NotFound:
+                  value:
+                    message: "Company not found"
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                InternalServerError:
+                  value:
+                    message: "Failed to delete company."
+                    error: "Database error message."
+
+  /companies/{id}/stripe-onboard:
+    post:
+      tags:
+        - Companies
+      summary: Initiate Stripe Connect onboarding for a company
+      description: |
+        Creates a Stripe Connect Standard account for a company (if not exists)
+        and generates an account link URL to redirect the company owner to Stripe
+        to complete their onboarding process.
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+            format: uuid
+          required: true
+          description: Unique identifier of the company to onboard.
+          example: "f1b8c7d6-a5e4-3b2a-1c0d-9e8f7a6b5c4d"
+      requestBody:
+        description: Empty request body, company ID is from path.
+        required: false
+        content:
+          application/json: {}
+      responses:
+        '200':
+          description: URL for Stripe Connect onboarding.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  url:
+                    type: string
+                    format: uri
+                    description: The URL to redirect the company user to for Stripe onboarding.
+                    example: "https://connect.stripe.com/oauth/authorize?response_type=code&client_id=ca_123..."
+        '404':
+          description: Company not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                CompanyNotFound:
+                  value:
+                    message: "Company not found."
+        '500':
+          description: Internal Server Error (e.g., Stripe API error, database error).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                StripeApiError:
+                  value:
+                    message: "Failed to create Payment Intent"
+                    error: "Stripe error message here."
+                DatabaseError:
+                  value:
+                    message: "Failed to initiate Stripe onboarding."
+                    error: "Database error message."
+
+  /stripe/create-payment-intent:
+    post:
+      tags:
+        - Payments
+      summary: Create a Stripe Payment Intent
+      description: |
+        Initiates a payment by creating a Payment Intent on Stripe for a specific company.
+        This intent must then be confirmed on the frontend using Stripe.js.
+        An application fee can be optionally taken from the payment.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - companyId
+                - amount
+                - currency
+                - customerId
+              properties:
+                companyId:
+                  type: string
+                  format: uuid
+                  description: The ID of the company receiving the payment.
+                  example: "e0a7b4f3-c2d1-4e8a-9f0b-1d3c5e7a9b0d"
+                amount:
+                  type: integer
+                  description: The amount to charge in cents (e.g., 2000 for 20.00 EUR).
+                  minimum: 1
+                  example: 2500
+                currency:
+                  type: string
+                  description: The three-letter ISO currency code (e.g., 'eur', 'usd').
+                  enum: [ "eur", "usd", "gbp" ]
+                  example: "eur"
+                customerId:
+                  type: string
+                  description: Your internal customer ID associated with this payment.
+                  example: "customer_abc_456"
+                description:
+                  type: string
+                  nullable: true
+                  description: A description for the payment, visible in Stripe.
+                  example: "Reservation for spa package"
+                metadata:
+                  type: object
+                  nullable: true
+                  description: Optional key-value pairs for custom data.
+                  example:
+                    reservationId: "res_xyz_789"
+      responses:
+        '201':
+          description: Payment Intent created successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  clientSecret:
+                    type: string
+                    description: The client secret of the Payment Intent, for frontend confirmation.
+                    example: "pi_1234567890abcdef_secret_ghijklmnop"
+                  paymentIntentId:
+                    type: string
+                    description: The ID of the created Payment Intent.
+                    example: "pi_1234567890abcdef"
+                  message:
+                    type: string
+                    example: "Payment Intent created successfully. Confirm on frontend."
+        '400':
+          description: Invalid input or missing required fields.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                MissingFields:
+                  value:
+                    message: "companyId, amount, currency, and customerId are required."
+        '404':
+          description: Company not found or not connected to Stripe.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                CompanyNotFound:
+                  value:
+                    message: "Company not found or not connected to Stripe."
+        '500':
+          description: Internal Server Error (e.g., Stripe API error, database error).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                StripeApiError:
+                  value:
+                    message: "Failed to create Payment Intent"
+                    error: "Stripe error message here."
+                DatabaseError:
+                  value:
+                    message: "Failed to record payment transaction."
+                    error: "Database error message."
+
+  /stripe/history/{companyId}:
+    get:
+      tags:
+        - Payments
+      summary: Retrieve payment history for a company
+      description: |
+        Fetches a list of payment transactions for a specific company,
+        with optional filtering and pagination.
+      parameters:
+        - in: path
+          name: companyId
+          schema:
+            type: string
+            format: uuid
+          required: true
+          description: The ID of the company to retrieve payment history for.
+          example: "e0a7b4f3-c2d1-4e8a-9f0b-1d3c5e7a9b0d"
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: ['pending', 'succeeded', 'failed', 'canceled', 'refunded']
+          required: false
+          description: Filter by Stripe's payment status.
+          example: "succeeded"
+        - in: query
+          name: internalStatus
+          schema:
+            type: string
+            enum: ['awaiting_approval', 'approved', 'declined', 'fulfilled', 'canceled_by_business']
+          required: false
+          description: Filter by internal business approval status.
+          example: "approved"
+        - in: query
+          name: customerId
+          schema:
+            type: string
+          required: false
+          description: Filter by your internal customer ID.
+          example: "customer_abc_456"
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            default: 10
+          required: false
+          description: Maximum number of transactions to return.
+        - in: query
+          name: offset
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+          required: false
+          description: Number of transactions to skip for pagination.
+      responses:
+        '200':
+          description: A paginated list of payment transactions.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                    description: Total number of transactions found.
+                    example: 25
+                  limit:
+                    type: integer
+                    description: The limit applied to the query.
+                    example: 10
+                  offset:
+                    type: integer
+                    description: The offset applied to the query.
+                    example: 0
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PaymentTransaction'
+              examples:
+                SuccessResponse:
+                  value:
+                    total: 1
+                    limit: 10
+                    offset: 0
+                    data:
+                      - id: "a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d"
+                        companyId: "e0a7b4f3-c2d1-4e8a-9f0b-1d3c5e7a9b0d"
+                        customer: "customer_abc_456"
+                        amount: 2500
+                        currency: "eur"
+                        stripePaymentIntentId: "pi_1234567890abcdef"
+                        status: "succeeded"
+                        internalStatus: "awaiting_approval"
+                        description: "Reservation for spa package"
+                        metadata:
+                          reservationId: "res_xyz_789"
+                          customerId: "customer_abc_456"
+                        createdAt: "2025-07-23T13:00:00.000Z"
+                        updatedAt: "2025-07-23T13:00:00.000Z"
+        '400':
+          description: Invalid input (e.g., missing companyId).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                MissingCompanyId:
+                  value:
+                    message: "Company ID is required."
+        '404':
+          description: Company not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                CompanyNotFound:
+                  value:
+                    message: "Company not found."
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                InternalServerError:
+                  value:
+                    message: "Failed to retrieve payment history."
+                    error: "Database error message."
+
+  /stripe/transactions/{transactionId}/status:
+    put:
+      tags:
+        - Payments
+      summary: Update the internal status of a payment transaction
+      description: |
+        Allows a business to update the internal processing status of a payment transaction
+        (e.g., mark a reservation as 'approved' or 'declined' after payment succeeded).
+      parameters:
+        - in: path
+          name: transactionId
+          schema:
+            type: string
+            format: uuid
+          required: true
+          description: The ID of the payment transaction to update.
+          example: "a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - internalStatus
+              properties:
+                internalStatus:
+                  type: string
+                  description: The new internal status for the transaction.
+                  enum: ['awaiting_approval', 'approved', 'declined', 'fulfilled', 'canceled_by_business']
+                  example: "approved"
+                notes:
+                  type: string
+                  nullable: true
+                  description: Optional notes regarding the status change.
+                  example: "Customer reservation confirmed for 2 PM slot."
+      responses:
+        '200':
+          description: Transaction internal status updated successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Transaction a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d internal status updated to approved"
+                  transaction:
+                    $ref: '#/components/schemas/PaymentTransaction'
+              examples:
+                SuccessResponse:
+                  value:
+                    message: "Transaction a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d internal status updated to approved"
+                    transaction:
+                      id: "a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d"
+                      companyId: "e0a7b4f3-c2d1-4e8a-9f0b-1d3c5e7a9b0d"
+                      customer: "customer_abc_456"
+                      amount: 2500
+                      currency: "eur"
+                      stripePaymentIntentId: "pi_1234567890abcdef"
+                      status: "succeeded"
+                      internalStatus: "approved"
+                      description: "Reservation for spa package"
+                      metadata:
+                        reservationId: "res_xyz_789"
+                        customerId: "customer_abc_456"
+                        internalNotes: "Customer reservation confirmed for 2 PM slot."
+                      createdAt: "2025-07-23T13:00:00.000Z"
+                      updatedAt: "2025-07-23T13:30:00.000Z"
+        '400':
+          description: Invalid input or missing internalStatus.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                InvalidStatus:
+                  value:
+                    message: "Invalid or missing internalStatus. Must be one of: awaiting_approval, approved, declined, fulfilled, canceled_by_business"
+        '404':
+          description: Payment transaction not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                NotFound:
+                  value:
+                    message: "Payment transaction not found."
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                InternalServerError:
+                  value:
+                    message: "Failed to update transaction internal status."
+                    error: "Database error message."
+
+  /stripe-webhook:
+    post:
+      tags:
+        - Webhooks
+      summary: Receive Stripe webhook events
+      description: |
+        This endpoint receives real-time event notifications from Stripe.
+        It is used to update the status of payment transactions in the database
+        based on events like `payment_intent.succeeded`, `payment_intent.payment_failed`, etc.
+        **Do not call this endpoint directly from your application; it's for Stripe only.**
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Stripe event object.
+              example:
+                id: "evt_1234567890abcdefghijkl"
+                object: "event"
+                type: "payment_intent.succeeded"
+                data:
+                  object:
+                    id: "pi_abcdef1234567890"
+                    status: "succeeded"
+                    # ... full PaymentIntent object
+      responses:
+        '200':
+          description: Webhook received successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  received:
+                    type: boolean
+                    example: true
+        '400':
+          description: Webhook signature verification failed or invalid event.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                InvalidSignature:
+                  value:
+                    message: "Webhook Error: No stripe-signature header present."
+                SignatureMismatch:
+                  value:
+                    message: "Webhook Error: No signatures found matching the expected signature for payload."
+
+
+components:
+  schemas:
+    Company:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique identifier of the company.
+          readOnly: true
+          example: "e0a7b4f3-c2d1-4e8a-9f0b-1d3c5e7a9b0d"
+        name:
+          type: string
+          description: The name of the company.
+          example: "Global Tech Solutions"
+        email:
+          type: string
+          format: email
+          description: The primary contact email.
+          example: "info@globaltech.com"
+        address:
+          type: string
+          nullable: true
+          description: The physical address.
+          example: "456 Enterprise Ave"
+        phone:
+          type: string
+          nullable: true
+          description: The phone number.
+          example: "999-888-7777"
+        stripeAccountId:
+          type: string
+          nullable: true
+          description: The Stripe Connect account ID linked to this company.
+          example: "acct_12345Example"
+        createdAt:
+          type: string
+          format: date-time
+          description: The date and time when the company record was created.
+          readOnly: true
+          example: "2025-07-23T10:00:00.000Z"
+        updatedAt:
+          type: string
+          format: date-time
+          description: The date and time when the company record was last updated.
+          readOnly: true
+          example: "2025-07-23T10:00:00.000Z"
+
+    PaymentTransaction:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique identifier of the payment transaction.
+          readOnly: true
+          example: "a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d"
+        companyId:
+          type: string
+          format: uuid
+          description: The ID of the company associated with this transaction.
+          example: "e0a7b4f3-c2d1-4e8a-9f0b-1d3c5e7a9b0d"
+        customer:
+          type: string
+          description: Your internal customer ID for this transaction.
+          example: "customer_abc_456"
+        amount:
+          type: integer
+          description: The transaction amount in cents.
+          example: 2500
+        currency:
+          type: string
+          description: The currency of the transaction (e.g., 'eur').
+          example: "eur"
+        stripePaymentIntentId:
+          type: string
+          description: The Stripe Payment Intent ID associated with this transaction.
+          example: "pi_1234567890abcdef"
+        status:
+          type: string
+          enum: ['pending', 'succeeded', 'failed', 'canceled', 'refunded']
+          description: The status of the payment from Stripe's perspective.
+          example: "succeeded"
+        internalStatus:
+          type: string
+          enum: ['awaiting_approval', 'approved', 'declined', 'fulfilled', 'canceled_by_business']
+          description: The internal business approval status of the transaction.
+          example: "awaiting_approval"
+        description:
+          type: string
+          nullable: true
+          description: A brief description of the transaction.
+          example: "Reservation for spa package"
+        metadata:
+          type: object
+          nullable: true
+          description: Additional custom data related to the transaction.
+          example:
+            reservationId: "res_xyz_789"
+            customerId: "customer_abc_456"
+            internalNotes: "Customer reservation confirmed for 2 PM slot."
+        createdAt:
+          type: string
+          format: date-time
+          description: The date and time when the transaction record was created.
+          readOnly: true
+          example: "2025-07-23T13:00:00.000Z"
+        updatedAt:
+          type: string
+          format: date-time
+          description: The date and time when the transaction record was last updated.
+          readOnly: true
+          example: "2025-07-23T13:00:00.000Z"
+
+    Error:
+      type: object
+      properties:
+        message:
+          type: string
+          description: A human-readable error message.
+          example: "Company not found"
+        error:
+          type: string
+          nullable: true
+          description: Optional detailed error information (e.g., stack trace or specific database error).
+          example: "SequelizeUniqueConstraintError: Validation error"
