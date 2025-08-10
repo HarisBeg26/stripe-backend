@@ -1,9 +1,9 @@
 require('dotenv').config();
 
 const express = require('express');
+const cors = require('cors');
 const {Sequelize, DataTypes} = require('sequelize');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-const bodyParser = require('body-parser');
 
 const swaggerUi = require('swagger-ui-express');
 const YAML = require('yamljs');
@@ -45,22 +45,39 @@ sequelize.authenticate().then(() => {
     process.exit(1);
 });
 
+app.use(cors({
+    origin: '*',
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
 app.use((req, res, next) => {
     req.db = {
         Company,
-        PaymentTransaction
+        PaymentTransaction,
+        sequelize
     };
     next();
 });
 
+
+app.use('/api/stripe/webhook', stripeWebhookRoutes);
+
+app.use(express.json());
+
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 console.log(`Access documentation at http://localhost:${port}/api-docs`);
+
 app.use('/api/companies', companyRoutes);
 app.use('/api/stripe', stripeRoutes);
-app.use('/api/stripe/webhook', stripeWebhookRoutes);
 
 app.get('/', (req, res) => {
     res.send('Company Service is running!');
+});
+
+app.use((err, req, res, next) => {
+    console.error(err.stack);
+    res.status(500).send('Something broke!');
 });
 
 app.listen(port, () => {
