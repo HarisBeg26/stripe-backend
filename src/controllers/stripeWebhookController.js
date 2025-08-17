@@ -1,13 +1,40 @@
 
+/**
+ * Stripe Webhook Controller
+ * 
+ * Handles incoming webhook events from Stripe to keep the application state
+ * synchronized with Stripe's records. This includes:
+ * - Payment status updates
+ * - Subscription lifecycle events
+ * - Invoice payment notifications
+ * - Customer updates
+ * 
+ * Security: All webhook events are verified using Stripe's signature
+ * to ensure they originated from Stripe and haven't been tampered with.
+ */
+
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const axios = require('axios');
 
-
+/**
+ * Async Error Handler Wrapper
+ * Automatically catches and forwards any async errors to Express error handler
+ */
 const asyncHandler = fn => (req, res, next) =>
     Promise.resolve(fn(req, res, next)).catch(next);
 
+// Stripe webhook endpoint secret for signature verification
 const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
+/**
+ * Maps Stripe Price IDs to Access Levels
+ * 
+ * Determines the access level based on the Stripe subscription plan.
+ * This is used for subscription-based access control.
+ * 
+ * @param {string} stripePriceId - The Stripe Price ID from the subscription
+ * @returns {string} Access level (basic, premium, or free)
+ */
 function getAccessLevelFromStripePlan(stripePriceId) {
     switch (stripePriceId) {
         case process.env.STRIPE_PRICE_BASIC_PLAN_ID:
@@ -15,18 +42,23 @@ function getAccessLevelFromStripePlan(stripePriceId) {
         case process.env.STRIPE_PRICE_PREMIUM_PLAN_ID:
             return 'premium';
         default:
-            return 'free';
+            return 'free'; // Default access level
     }
 }
 
 /**
- * Updates a Company's subscription status in the database.
- * @param {object} CompanyModel The Sequelize Company model.
- * @param {string} stripeCustomerId The Stripe Customer ID.
- * @param {object} subscriptionData The Stripe Subscription object data.
+ * Updates Company Subscription Status
+ * 
+ * Synchronizes local database with Stripe subscription data.
+ * This function is called whenever subscription-related events occur.
+ * 
+ * @param {object} CompanyModel - Sequelize Company model
+ * @param {string} stripeCustomerId - Stripe Customer ID
+ * @param {object} subscriptionData - Stripe Subscription object data
  */
 async function updateCompanySubscriptionStatus(CompanyModel, stripeCustomerId, subscriptionData) {
     try {
+        // Find the company by their Stripe Customer ID
         const company = await CompanyModel.findOne({ where: { stripeCustomerId: stripeCustomerId } });
 
         if (!company) {
@@ -36,18 +68,24 @@ async function updateCompanySubscriptionStatus(CompanyModel, stripeCustomerId, s
 
         console.log(`Attempting to update subscription for company: ${company.name} (ID: ${company.id})`);
 
+        // Extract subscription details
         const newStatus = subscriptionData.status;
         const stripeSubscriptionId = subscriptionData.id;
+        // Convert Unix timestamp to JavaScript Date
         const currentPeriodEnd = subscriptionData.current_period_end ? new Date(subscriptionData.current_period_end * 1000) : null;
-        let newAccessLevel = 'free';
+        let newAccessLevel = 'free'; // Default access level
 
+        // Determine access level from subscription plan
         if (subscriptionData.items && subscriptionData.items.data.length > 0) {
             newAccessLevel = getAccessLevelFromStripePlan(subscriptionData.items.data[0].price.id);
         }
+        
+        // Override access level for canceled or unpaid subscriptions
         if (newStatus === 'canceled' || newStatus === 'unpaid') {
             newAccessLevel = 'free';
         }
 
+        // Update company record in database
         await company.update({
             stripeSubscriptionId: stripeSubscriptionId,
             subscriptionStatus: newStatus,
@@ -62,12 +100,25 @@ async function updateCompanySubscriptionStatus(CompanyModel, stripeCustomerId, s
     }
 }
 
+/**
+ * Main Webhook Handler
+ * 
+ * Processes incoming webhook events from Stripe. This function:
+ * 1. Verifies the webhook signature for security
+ * 2. Parses the event data
+ * 3. Routes to appropriate handlers based on event type
+ * 4. Updates local database records to stay in sync with Stripe
+ * 5. Optionally sends notifications or logs events
+ * 
+ * @route POST /api/stripe/webhook
+ */
 exports.handleWebhook = asyncHandler(async (req, res) => {
     const { Company, PaymentTransaction } = req.db;
     const sig = req.headers['stripe-signature'];
     let event;
 
     try {
+        // Verify webhook signature to ensure request came from Stripe
         event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
     } catch (err) {
         console.error(`Webhook Signature Verification Error: ${err.message}`);
@@ -76,7 +127,10 @@ exports.handleWebhook = asyncHandler(async (req, res) => {
 
     console.log(`--- Received Stripe event type: ${event.type} ---`);
 
+    // Extract the main data object from the event
     const dataObject = event.data.object;
+    
+    // Optional: Log webhook events to external logging service
     if (process.env.LOGGING_SERVICE_URL) {
         try {
             await axios.post(process.env.LOGGING_SERVICE_URL, {
@@ -95,14 +149,22 @@ exports.handleWebhook = asyncHandler(async (req, res) => {
         }
     }
 
+    // Process webhook events based on type
     switch (event.type) {
+        /**
+         * Checkout Session Completed
+         * Fired when a customer completes a Checkout session.
+         * Handles both subscription and one-time payment completions.
+         */
         case 'checkout.session.completed':
             if (dataObject.mode === 'subscription' && dataObject.subscription) {
                 console.log(`   Checkout session completed for subscription: ${dataObject.subscription}`);
+                // Retrieve full subscription details and update company status
                 const subscription = await stripe.subscriptions.retrieve(dataObject.subscription);
                 await updateCompanySubscriptionStatus(Company, subscription.customer, subscription);
             } else if (dataObject.mode === 'payment' && dataObject.payment_intent) {
                 console.log(`   Checkout session completed for one-time payment: ${dataObject.payment_intent}`);
+                // Update payment transaction status for one-time payments
                 await PaymentTransaction.update(
                     {
                         status: 'succeeded',
@@ -113,9 +175,16 @@ exports.handleWebhook = asyncHandler(async (req, res) => {
             }
             break;
 
+        /**
+         * Subscription Created
+         * Fired when a new subscription is created.
+         * Updates company subscription status and sends welcome notification.
+         */
         case 'customer.subscription.created':
             console.log('   New subscription created:', dataObject.id);
             await updateCompanySubscriptionStatus(Company, dataObject.customer, dataObject);
+            
+            // Optional: Send welcome notification
             if (process.env.NOTIFICATION_SERVICE_URL) {
                 try {
                     await axios.post(process.env.NOTIFICATION_SERVICE_URL, {
@@ -193,6 +262,29 @@ exports.handleWebhook = asyncHandler(async (req, res) => {
                 },
                 { where: { stripePaymentIntentId: paymentIntentSucceeded.id } }
             );
+
+            // Call the external billing service to create a billing record
+            // try {
+            //     const billingServiceUrl = `${process.env.BILLING_SERVICE_URL}`;
+            //     const metadata = paymentIntentSucceeded.metadata || {};
+
+            //     const billingPayload = {
+            //         amount: paymentIntentSucceeded.amount,
+            //         date: new Date().toISOString(),
+            //         companyServiceId: metadata.companyServiceId ? parseInt(metadata.companyServiceId, 10) : null,
+            //         companyPackageId: parseInt(metadata.companyPackageId, 10) || 999
+            //     };
+
+            //     console.log(`   Calling billing service at ${billingServiceUrl} with payload:`, billingPayload);
+            //     await axios.post(billingServiceUrl, billingPayload, {
+            //         headers: {
+            //             'Authorization': `Bearer ${process.env.BILLING_SERVICE_TOKEN}`
+            //         }
+            //     });
+            //     console.log('   ✅ Successfully created billing record.');
+            // } catch (billingError) {
+            //     console.error('   Error calling the billing service:', billingError.response ? billingError.response.data : billingError.message);
+            // }
             break;
 
         case 'payment_intent.payment_failed':

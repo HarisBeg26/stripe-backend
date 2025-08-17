@@ -1,0 +1,67 @@
+version: '3.8'
+services:
+  stripe-app:
+    build: .
+    container_name: stripe-backend-app
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./.env
+    depends_on:
+      - user-service
+      - employee-service
+  
+  user-service:
+    image: bogdan713/user-service
+    container_name: user-service
+    ports:
+      - "8080:8080"
+    environment:
+      - NODE_ENV=production
+      - MYSQL_HOST=mysql
+      - MYSQL_USER=root
+      - MYSQL_PASSWORD=rootpassword
+      - MYSQL_DATABASE=userdb
+    depends_on:
+      - mysql
+
+  employee-service:
+    image: pajovicv/employee-service
+    container_name: employee-service-app
+    ports:
+      - "8081:8080"
+    environment:
+      - NODE_ENV=production
+    restart: unless-stopped
+
+  mysql:
+    image: mysql:8.0
+    container_name: user-service-mysql
+    ports:
+      - "3307:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=rootpassword
+      - MYSQL_DATABASE=userdb
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+  admin-service:
+    image: docker.io/radovan15/soa-admin-service:latest
+    container_name: admin-service-soa
+    ports:
+      - "7001:7000"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://db-mysql-fra1-44936-do-user-18276591-0.k.db.ondigitalocean.com:25060/administration
+      SPRING_DATASOURCE_USERNAME: doadmin
+      SPRING_DATASOURCE_PASSWORD: AVNS_-FxVjWsPbwWMkUsHlYf
+      davcne_url: https://walrus-app-j5ur2.ondigitalocean.app/api
+      token: 1002485363
+    networks:
+      - soa-net
+
+volumes:
+  mysql_data:
+
+networks:
+  soa-net:
+    driver: bridge

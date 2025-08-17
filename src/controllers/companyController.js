@@ -11,6 +11,24 @@ exports.getAllCompanies = asyncHandler(async (req, res) => {
 });
 
 exports.getCompanyById = asyncHandler(async (req, res) => {
+    console.log('=== DEBUG getCompanyById ===');
+    console.log('Full req.params object:', JSON.stringify(req.params));
+    console.log('req.params.id:', req.params ? req.params.id : 'req.params is undefined');
+    console.log('req.url:', req.url);
+    console.log('req.method:', req.method);
+    console.log('Keys in req:', Object.keys(req));
+    console.log('=============================');
+    
+    if (!req.params || !req.params.id) {
+        return res.status(400).json({ 
+            message: 'Missing company ID parameter',
+            debug: {
+                params: req.params,
+                url: req.url
+            }
+        });
+    }
+    
     const { Company } = req.db;
     const company = await Company.findByPk(req.params.id);
     if (!company) {
