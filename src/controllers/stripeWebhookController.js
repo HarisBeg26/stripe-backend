@@ -264,27 +264,27 @@ exports.handleWebhook = asyncHandler(async (req, res) => {
             );
 
             // Call the external billing service to create a billing record
-            // try {
-            //     const billingServiceUrl = `${process.env.BILLING_SERVICE_URL}`;
-            //     const metadata = paymentIntentSucceeded.metadata || {};
+            try {
+                const billingServiceUrl = `${process.env.BILLING_SERVICE_URL}`;
+                const metadata = paymentIntentSucceeded.metadata || {};
+                console.log("AMOUNT:", paymentIntentSucceeded.amount);
+                const billingPayload = {
+                    amount: paymentIntentSucceeded.amount / 100,
+                    date: new Date().toISOString(),
+                    companyServiceId: metadata.companyServiceId ? parseInt(metadata.companyServiceId, 10) : null,
+                    companyPackageId: parseInt(metadata.companyPackageId, 10) || 999
+                };
 
-            //     const billingPayload = {
-            //         amount: paymentIntentSucceeded.amount,
-            //         date: new Date().toISOString(),
-            //         companyServiceId: metadata.companyServiceId ? parseInt(metadata.companyServiceId, 10) : null,
-            //         companyPackageId: parseInt(metadata.companyPackageId, 10) || 999
-            //     };
-
-            //     console.log(`   Calling billing service at ${billingServiceUrl} with payload:`, billingPayload);
-            //     await axios.post(billingServiceUrl, billingPayload, {
-            //         headers: {
-            //             'Authorization': `Bearer ${process.env.BILLING_SERVICE_TOKEN}`
-            //         }
-            //     });
-            //     console.log('   ✅ Successfully created billing record.');
-            // } catch (billingError) {
-            //     console.error('   Error calling the billing service:', billingError.response ? billingError.response.data : billingError.message);
-            // }
+                console.log(`Calling billing service at ${billingServiceUrl} with payload:`, billingPayload);
+                await axios.post(billingServiceUrl, billingPayload, {
+                    headers: {
+                        'Authorization': `Bearer ${process.env.BILLING_SERVICE_TOKEN}`
+                    }
+                });
+                console.log('Successfully created billing record.');
+            } catch (billingError) {
+                console.error('Error calling the billing service:', billingError.response ? billingError.response.data : billingError.message);
+            }
             break;
 
         case 'payment_intent.payment_failed':

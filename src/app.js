@@ -15,7 +15,11 @@ require('dotenv').config();
 // Import required dependencies
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const {Sequelize, DataTypes} = require('sequelize');
+const fs = require('fs');
+const path = require('path');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 // Swagger documentation setup
@@ -38,13 +42,17 @@ const port = process.env.PORT || 3000;
  * Database Configuration & Setup
  * Configure PostgreSQL connection with SSL for production environments
  */
+// Path to the DigitalOcean CA certificate
+const caCertPath = path.join(__dirname, '../ca-certificate.crt');
+
 const sequelize = new Sequelize(process.env.DATABASE_URL, {
     dialect: 'postgres',
     logging: false, // Set to true to see SQL queries in console
     dialectOptions: {
         ssl: {
             require: true,
-            rejectUnauthorized: false // Required for some cloud database providers
+            // Use the CA certificate to verify the server's identity
+            ca: fs.readFileSync(caCertPath).toString(),
         }
     }
 });
@@ -99,7 +107,7 @@ app.get('/api/stripe/test-payment-table', async (req, res) => {
  */
 sequelize.authenticate().then(() => {
     console.log('Sequelize authenticated successfully.');
-    return sequelize.sync({ force: true }); // WARNING: This drops and recreates tables. Use only in development.
+    // return sequelize.sync({ force: true }); // WARNING: This drops and recreates tables. Use only in development.
 }).then(() => {
     console.log('Database synchronized successfully.');
 }).catch((err) => {
@@ -108,14 +116,48 @@ sequelize.authenticate().then(() => {
 });
 
 /**
+ * Security Middleware
+ * Apply security headers and rate limiting
+ */
+app.use(helmet({
+    contentSecurityPolicy: false, // Disable for Swagger UI
+}));
+
+// Rate limiting for authentication endpoints
+const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 5, // Limit each IP to 5 requests per windowMs
+    message: { message: 'Too many authentication attempts, please try again later.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
+// General API rate limiting
+const apiLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 100, // Limit each IP to 100 requests per windowMs
+    message: { message: 'Too many requests, please try again later.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
+// Apply rate limiting to auth routes
+app.use('/api/users/login', authLimiter);
+app.use('/api/users/register', authLimiter);
+
+// Apply general rate limiting to all API routes
+app.use('/api/', apiLimiter);
+
+/**
  * CORS Configuration
  * Enable Cross-Origin Resource Sharing for frontend applications
  * In production, consider restricting origins to specific domains
  */
 app.use(cors({
-    origin: '*', // Allow all origins - restrict in production
+    origin: process.env.ALLOWED_ORIGINS?.split(',') || '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
-    allowedHeaders: ['Content-Type', 'Authorization']
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true
 }));
 
 /**

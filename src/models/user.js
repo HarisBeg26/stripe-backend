@@ -55,6 +55,14 @@ module.exports = (sequelize, DataTypes) => {
         lastLogin: {
             type: DataTypes.DATE,
             allowNull: true,
+        },
+        resetToken: {
+            type: DataTypes.STRING,
+            allowNull: true,
+        },
+        resetTokenExpiry: {
+            type: DataTypes.DATE,
+            allowNull: true,
         }
     }, {
         tableName: 'users',

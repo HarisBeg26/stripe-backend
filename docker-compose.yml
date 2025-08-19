@@ -1,66 +1,24 @@
 version: '3.8'
 services:
-  stripe-app:
-    build: .
-    container_name: stripe-backend-app
+  payment-service:
+    image: vunjash/stripe-backend:latest
     ports:
-      - "3000:3000"
-    env_file:
-      - ./.env
-    depends_on:
-      - user-service
-      - employee-service
-  
-  user-service:
-    image: bogdan713/user-service
-    container_name: user-service
-    ports:
-      - "8080:8080"
+      - "3001:3000"
     environment:
-      - NODE_ENV=production
-      - MYSQL_HOST=mysql
-      - MYSQL_USER=root
-      - MYSQL_PASSWORD=rootpassword
-      - MYSQL_DATABASE=userdb
-    depends_on:
-      - mysql
-
-  employee-service:
-    image: pajovicv/employee-service
-    container_name: employee-service-app
-    ports:
-      - "8081:8080"
-    environment:
-      - NODE_ENV=production
-    restart: unless-stopped
-
-  mysql:
-    image: mysql:8.0
-    container_name: user-service-mysql
-    ports:
-      - "3307:3306"
-    environment:
-      - MYSQL_ROOT_PASSWORD=rootpassword
-      - MYSQL_DATABASE=userdb
-    volumes:
-      - mysql_data:/var/lib/mysql
-
-  admin-service:
-    image: docker.io/radovan15/soa-admin-service:latest
-    container_name: admin-service-soa
-    ports:
-      - "7001:7000"
-    environment:
-      SPRING_DATASOURCE_URL: jdbc:mysql://db-mysql-fra1-44936-do-user-18276591-0.k.db.ondigitalocean.com:25060/administration
-      SPRING_DATASOURCE_USERNAME: doadmin
-      SPRING_DATASOURCE_PASSWORD: AVNS_-FxVjWsPbwWMkUsHlYf
-      davcne_url: https://walrus-app-j5ur2.ondigitalocean.app/api
-      token: 1002485363
+      APP_BASE_URL: http://localhost:3001
+      STRIPE_PUBLISHABLE_KEY: pk_test_51RQqC7BHSqmERpQugTEM7dbOj0n7ZthxZ8zCmNxl6sVjUmx5AznO8i7pZRiMHcpAl3ggKd8uoPgcFSb9FroOW6N900XKh5XKev
+      STRIPE_SECRET_KEY: sk_test_51RQqC7BHSqmERpQub8mirJaaXuGzfJtrWUVsbl5QsiiMZQzlWmOwOaxmAU7MdpjmXS8e6C84i7oyGT4GjDPXiGM100TMsEvMkA
+      STRIPE_WEBHOOK_SECRET: whsec_b26df86e8649a194fcaaf5d9b2c166e3d456b17fd2c45ef64830e73023d7b2a9
+      DATABASE_URL: postgres://doadmin:AVNS_UZNzzzHCje7TJO1TmhN@stripe-payment-gw-do-user-18671628-0.k.db.ondigitalocean.com:25060/defaultdb
+      STRIPE_PRICE_BASIC_PLAN_ID: price_1RsMolBHSqmERpQuEsSlB8cQ
+      STRIPE_PRICE_PREMIUM_PLAN_ID: price_1RTkpPBHSqmERpQu44sl02EJ
+      BILLING_SERVICE_URL: admin-service:7001/api/v1/billings
+      BILLING_SERVICE_TOKEN: 1002485363
+      CORS_ORIGIN: http://localhost:8084
     networks:
       - soa-net
-
-volumes:
-  mysql_data:
+    volumes:
+      - ./storage:/storage
 
 networks:
   soa-net:

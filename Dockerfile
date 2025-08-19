@@ -1,25 +1,18 @@
-FROM node:20-alpine AS builder
-
-WORKDIR /app
-
-COPY package*.json ./
-
-RUN npm install --omit=dev
-
-COPY . .
-
 FROM node:20-alpine
 
 WORKDIR /app
 
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/package.json ./package.json
+# Copy package files
+COPY package*.json ./
 
-COPY --from=builder /app/src ./src
+# Install all dependencies (including dev dependencies for development)
+RUN npm install --include=dev
 
-COPY --from=builder /app/swagger.yaml ./swagger.yaml
-COPY --from=builder /app/.env.example ./.env.example
+# Copy application source code
+COPY . .
 
+# Expose the application port
 EXPOSE 3000
 
-CMD ["node", "src/app.js"]
+# Start the application
+CMD ["npm", "run", "dev"]
